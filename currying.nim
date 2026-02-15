@@ -1,4 +1,6 @@
 import std/macros
+import std/sequtils
+import sugar
 
 proc formalParams(fn: NimNode): NimNode =
     # 3 is FormalParams
@@ -9,21 +11,6 @@ proc `formalParams=`(fn: NimNode, newFp: NimNode) =
     # 3 is FormalParams
     fn.expectKind nnkProcDef
     fn[3] = newFp
-
-macro typedDumpTree(tree: typed): untyped =
-    let t = tree.treeRepr
-    let impl = tree.getImpl
-    let r = impl.treeRepr
-    result = quote do:
-        echo `t`
-        echo "--------------------------------------------------"
-        echo `r`
-
-func removeFirstParam(fn: NimNode): NimNode =
-    fn.expectKind nnkProcDef
-    assert(fn.formalParams.len >= 2)
-    result = fn.copy()
-    result.formalParams.del(1)
 
 iterator flatIdentDefs(params: openArray[NimNode]): NimNode =
     for node in params:
@@ -45,41 +32,40 @@ func flatFunc(fn: NimNode): NimNode =
         result.formalParams.add(id)
 
 proc curryFunc(fn: NimNode): NimNode =
-    # 4 is Pragma
     fn.expectKind nnkProcDef
 
-    if fn.formalParams.len == 2:
-        var res = fn.copy()
-        res[0] = newEmptyNode()
-        return res
+    let
+        fnSym = fn[0]
+        ret = fn.formalParams[0]
+        params = fn.formalParams[1 .. ^1]
+        paramSyms = params.map((id) => genSym(nskParam, id[0].repr))
 
-    let curried = fn.removeFirstParam.curryFunc
-    # echo curried.repr, "!!!!!"
-    var retTy = newNimNode(nnkProcTy)
-    retTy.add(curried.formalParams) # add FormalParams
-    retTy.add(curried[4]) # add Pragma
-    let params = [retTy, fn.formalParams[1]]
+    assert(params.len >= 1)
 
     result = newProc(
-        params = params,
-        body = newAssignment(ident("result"), curried)
+        params = [ret, newIdentDefs(paramSyms[^1], params[^1][^2], params[^1][^1])],
+        body = newTree(nnkReturnStmt, newCall(fnSym, paramSyms))
     )
 
-macro currying(fn: typed): untyped =
+    for i in countdown(high(params)-1, low(params)):
+        let
+            param = params[i]
+            retType = newTree(nnkProcTy, result.formalParams, newEmptyNode())
+
+        result = newProc(
+            params = [retType, newIdentDefs(paramSyms[i], param[^2], param[^1])],
+            body = newTree(nnkReturnStmt, result)
+        )
+
+macro curry(fn: typed): untyped =
     let impl = fn.getImpl
     impl.expectKind nnkProcDef
     impl.flatFunc().curryFunc()
-    # echo result.repr
 
 proc foo(a, b, c: int): int =
     a + b + c
 
-# typedDumpTree(foo)
-# dumpTree:
-#     proc asdf() =
-#         discard
-
-
 when isMainModule:
-    let curried = currying(foo)
+    echo foo(1, 2, 3)
+    let curried = curry(foo)
     echo (curried(1)(2)(3))
