@@ -65,7 +65,6 @@ macro currying(fn: typed): untyped =
     var flatten = flattenFunc(impl.copy)
 
     result = currying_func(flatten)
-    result[0] = ident("curried")
     echo result.repr
 
 proc foo(a, b, c: int): int =
@@ -77,6 +76,6 @@ proc foo(a, b, c: int): int =
 #         discard
 
 
-currying(foo)
-
-echo (curried(1)(2)(3))
+when isMainModule:
+    let curried = currying(foo)
+    echo (curried(1)(2)(3))
