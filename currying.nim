@@ -1,5 +1,15 @@
 import std/macros
 
+proc formalParams(fn: NimNode): NimNode =
+    # 3 is FormalParams
+    fn.expectKind nnkProcDef
+    fn[3]
+
+proc `formalParams=`(fn: NimNode, newFp: NimNode) =
+    # 3 is FormalParams
+    fn.expectKind nnkProcDef
+    fn[3] = newFp
+
 macro typedDumpTree(tree: typed): untyped =
     let t = tree.treeRepr
     let impl = tree.getImpl
@@ -10,13 +20,12 @@ macro typedDumpTree(tree: typed): untyped =
         echo `r`
 
 func removeFirstParam(fn: NimNode): NimNode =
-    # 3 is FormalParams
     fn.expectKind nnkProcDef
-    assert(fn[3].len >= 2)
-    result = fn.copy
-    result[3].del(1)
+    assert(fn.formalParams.len >= 2)
+    result = fn.copy()
+    result.formalParams.del(1)
 
-iterator flattenIdentDefs(params: openArray[NimNode]): NimNode =
+iterator flatIdentDefs(params: openArray[NimNode]): NimNode =
     for node in params:
         node.expectKind nnkIdentDefs
         let typ = node[^2]
@@ -24,34 +33,32 @@ iterator flattenIdentDefs(params: openArray[NimNode]): NimNode =
         for sym in node[0 ..< ^2]:
             yield newIdentDefs(sym, typ, dflt)
 
-func flattenFunc(fn: NimNode): NimNode =
-    # 3 is FormalParams
+func flatFunc(fn: NimNode): NimNode =
     fn.expectKind nnkProcDef
-    result = fn.copy
+    result = fn.copy()
 
     var newFp = newNimNode(nnkFormalParams)
-    newFp.add(result[3][0])
-    result[3] = newfp
+    newFp.add(result.formalParams[0])
+    result.formalParams = newFp
 
-    for id in flattenIdentDefs(fn[3][1 .. ^1]):
-        result[3].add(id)
+    for id in flatIdentDefs(fn.formalParams[1 .. ^1]):
+        result.formalParams.add(id)
 
-proc currying_func(fn: NimNode): NimNode =
-    # 3 is FormalParams
+proc curryFunc(fn: NimNode): NimNode =
     # 4 is Pragma
     fn.expectKind nnkProcDef
 
-    if fn[3].len == 2:
-        var res = fn.copy
+    if fn.formalParams.len == 2:
+        var res = fn.copy()
         res[0] = newEmptyNode()
         return res
 
-    let curried = fn.removeFirstParam.currying_func
-    echo curried.repr, "!!!!!"
+    let curried = fn.removeFirstParam.curryFunc
+    # echo curried.repr, "!!!!!"
     var retTy = newNimNode(nnkProcTy)
-    retTy.add(curried[3]) # add FormalParams
+    retTy.add(curried.formalParams) # add FormalParams
     retTy.add(curried[4]) # add Pragma
-    let params = [retTy, fn[3][1]]
+    let params = [retTy, fn.formalParams[1]]
 
     result = newProc(
         params = params,
@@ -61,11 +68,8 @@ proc currying_func(fn: NimNode): NimNode =
 macro currying(fn: typed): untyped =
     let impl = fn.getImpl
     impl.expectKind nnkProcDef
-
-    var flatten = flattenFunc(impl.copy)
-
-    result = currying_func(flatten)
-    echo result.repr
+    impl.flatFunc().curryFunc()
+    # echo result.repr
 
 proc foo(a, b, c: int): int =
     a + b + c
